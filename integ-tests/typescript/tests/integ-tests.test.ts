@@ -26,6 +26,9 @@ import exp from 'constants'
 config()
 
 describe('Integ tests', () => {
+
+  
+
   describe('should work for all inputs', () => {
     it('single bool', async () => {
       const res = await b.TestFnNamedArgsSingleBool(true)
@@ -42,6 +45,14 @@ describe('Integ tests', () => {
     it('return literal union', async () => {
       const res = await b.LiteralUnionsTest('a')
       expect(res == 1 || res == true || res == 'string output').toBeTruthy()
+    })
+
+    it('optional list and map', async () => {
+      let res = await b.AllowedOptionals({ p: null, q: null })
+      expect(res).toEqual({ p: null, q: null })
+
+      res = await b.AllowedOptionals({ p: ['test'], q: { test: 'ok' } })
+      expect(res).toEqual({ p: ['test'], q: { test: 'ok' } })
     })
 
     it('single class', async () => {
@@ -345,6 +356,38 @@ describe('Integ tests', () => {
     }
     expect(msgs.at(-1)).toEqual(final)
   })
+
+  it('should support azure', async () => {
+    const res = await b.TestAzure('Donkey Kong')
+    expect(res.toLowerCase()).toContain('donkey')
+  })
+
+  it('should support azure streaming', async () => {
+    const stream = b.stream.TestAzure('Donkey Kong')
+    const msgs: string[] = []
+    for await (const msg of stream) {
+      msgs.push(msg ?? '')
+    }
+    const final = await stream.getFinalResponse()
+    expect(final.length).toBeGreaterThan(0)
+  })
+
+  it('should fail if azure is not configured', async () => {
+    await expect(async () => {
+      await b.TestAzureFailure('Donkey Kong')
+    }).rejects.toThrow('BamlClientError')
+  })
+
+  // it('should fail if azure is not configured streaming', async () => {
+  //   const stream = b.stream.TestAzureFailure('Donkey Kong')
+  //   await expect(async () => {
+  //     // this should throw an error, not only when we try to get the final response
+  //     for await (const msg of stream) {
+  //       console.log('msg', msg)
+  //     }
+  //     // await stream.getFinalResponse()
+  //   }).rejects.toThrow('BamlClientError')
+  // })
 
   it('should support vertex', async () => {
     const res = await b.TestVertex('Donkey Kong')
