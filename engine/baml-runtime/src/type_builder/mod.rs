@@ -1,4 +1,5 @@
 use std::sync::{Arc, Mutex};
+use std::fmt;
 
 use baml_types::{BamlValue, FieldType};
 use indexmap::IndexMap;
@@ -133,36 +134,147 @@ impl EnumBuilder {
     }
 }
 
-impl std::fmt::Debug for TypeBuilder {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // Start the debug printout with the struct name
-        writeln!(f, "TypeBuilder {{")?;
+impl fmt::Display for ClassPropertyBuilder {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let meta = self.meta.lock().unwrap();
+        let alias = meta.get("alias").and_then(|v| v.as_string());
+        let desc = meta.get("description").and_then(|v| v.as_string());
 
-        // Safely attempt to acquire the lock and print classes
-        write!(f, "  classes: ")?;
-        match self.classes.lock() {
-            Ok(classes) => {
-                // We iterate through the keys only to avoid deadlocks and because we might not be able to print the values
-                // safely without deep control over locking mechanisms
-                let keys: Vec<_> = classes.keys().collect();
-                writeln!(f, "{:?},", keys)?
+        write!(f, "{}", self.r#type.lock().unwrap().as_ref().map_or("unset", |_| "set"))?;
+        if let Some(alias) = alias {
+            write!(f, " (alias='{}'", alias)?;
+            if let Some(desc) = desc {
+                write!(f, ", desc='{}'", desc)?;
             }
-            Err(_) => writeln!(f, "Cannot acquire lock,")?,
+            write!(f, ")")?;
+        } else if let Some(desc) = desc {
+            write!(f, " (desc='{}')", desc)?;
         }
+        Ok(())
+    }
+}
 
-        // Safely attempt to acquire the lock and print enums
-        write!(f, "  enums: ")?;
-        match self.enums.lock() {
-            Ok(enums) => {
-                // Similarly, print only the keys
-                let keys: Vec<_> = enums.keys().collect();
-                writeln!(f, "{:?}", keys)?
+impl fmt::Display for ClassBuilder {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let properties = self.properties.lock().unwrap();
+        write!(f, "{{")?;
+        if !properties.is_empty() {
+            write!(f, " ")?;
+            for (i, (name, prop)) in properties.iter().enumerate() {
+                if i > 0 {
+                    write!(f, ", ")?;
+                }
+                write!(f, "{} {}", name, prop.lock().unwrap())?;
             }
-            Err(_) => writeln!(f, "Cannot acquire lock,")?,
+            write!(f, " ")?;
         }
-
-        // Close the struct printout
         write!(f, "}}")
+    }
+}
+
+impl fmt::Display for EnumValueBuilder {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let meta = self.meta.lock().unwrap();
+        let alias = meta.get("alias").and_then(|v| v.as_string());
+        let desc = meta.get("description").and_then(|v| v.as_string());
+
+        if let Some(alias) = alias {
+            write!(f, " (alias='{}'", alias)?;
+            if let Some(desc) = desc {
+                write!(f, ", desc='{}'", desc)?;
+            }
+            write!(f, ")")?;
+        } else if let Some(desc) = desc {
+            write!(f, " (desc='{}')", desc)?;
+        }
+        Ok(())
+    }
+}
+
+impl fmt::Display for EnumBuilder {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let values = self.values.lock().unwrap();
+        write!(f, "{{")?;
+        if !values.is_empty() {
+            write!(f, " ")?;
+            for (i, (name, value)) in values.iter().enumerate() {
+                if i > 0 {
+                    write!(f, ", ")?;
+                }
+                write!(f, "{}{}", name, value.lock().unwrap())?;
+            }
+            write!(f, " ")?;
+        }
+        write!(f, "}}")
+    }
+}
+
+/// implements a string representation for typebuilder.
+///
+/// this implementation provides a clear, hierarchical view of the typebuilder's structure,
+/// making it easy to understand the defined types and their metadata at a glance.
+///
+/// # Format
+/// ```text
+/// TypeBuilder(
+///   Classes: [
+///     ClassName {
+///       property_name type (alias='custom_name', desc='property description'),
+///       another_property type (desc='another description'),
+///       simple_property type
+///     },
+///     EmptyClass { }
+///   ],
+///   Enums: [
+///     EnumName {
+///       VALUE (alias='custom_value', desc='value description'),
+///       ANOTHER_VALUE (alias='custom'),
+///       SIMPLE_VALUE
+///     },
+///     EmptyEnum { }
+///   ]
+/// )
+/// ```
+///
+/// # properties shown
+/// - class and property names
+/// - property types (set/unset)
+/// - property metadata (aliases, descriptions)
+/// - enum values and their metadata
+/// - empty classes and enums
+impl fmt::Display for TypeBuilder {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let classes = self.classes.lock().unwrap();
+        let enums = self.enums.lock().unwrap();
+
+        write!(f, "TypeBuilder(")?;
+
+        if !classes.is_empty() {
+            write!(f, "Classes: [")?;
+            for (i, (name, cls)) in classes.iter().enumerate() {
+                if i > 0 {
+                    write!(f, ", ")?;
+                }
+                write!(f, "{} {}", name, cls.lock().unwrap())?;
+            }
+            write!(f, "]")?;
+        }
+
+        if !enums.is_empty() {
+            if !classes.is_empty() {
+                write!(f, ", ")?;
+            }
+            write!(f, "Enums: [")?;
+            for (i, (name, e)) in enums.iter().enumerate() {
+                if i > 0 {
+                    write!(f, ", ")?;
+                }
+                write!(f, "{} {}", name, e.lock().unwrap())?;
+            }
+            write!(f, "]")?;
+        }
+
+        write!(f, ")")
     }
 }
 
@@ -299,15 +411,166 @@ mod tests {
     #[test]
     fn test_type_builder() {
         let builder = TypeBuilder::new();
-        let cls = builder.class("Person");
-        let property = cls.lock().unwrap().property("name");
-        property.lock().unwrap().r#type(FieldType::string());
-        cls.lock()
-            .unwrap()
-            .property("age")
-            .lock()
-            .unwrap()
-            .r#type(FieldType::int())
-            .with_meta("alias", BamlValue::String("years".to_string()));
+
+        // Add a class with properties and metadata
+        let cls = builder.class("User");
+        {
+            let cls = cls.lock().unwrap();
+            // Add name property with alias and description
+            cls.property("name")
+                .lock()
+                .unwrap()
+                .r#type(FieldType::string())
+                .with_meta("alias", BamlValue::String("username".to_string()))
+                .with_meta("description", BamlValue::String("The user's full name".to_string()));
+
+            // Add age property with description only
+            cls.property("age")
+                .lock()
+                .unwrap()
+                .r#type(FieldType::int())
+                .with_meta("description", BamlValue::String("User's age in years".to_string()));
+
+            // Add email property with no metadata
+            cls.property("email")
+                .lock()
+                .unwrap()
+                .r#type(FieldType::string());
+        }
+
+        // Add an enum with values and metadata
+        let enm = builder.r#enum("Status");
+        {
+            let enm = enm.lock().unwrap();
+            // Add ACTIVE value with alias and description
+            enm.value("ACTIVE")
+                .lock()
+                .unwrap()
+                .with_meta("alias", BamlValue::String("active".to_string()))
+                .with_meta("description", BamlValue::String("User is active".to_string()));
+
+            // Add INACTIVE value with alias only
+            enm.value("INACTIVE")
+                .lock()
+                .unwrap()
+                .with_meta("alias", BamlValue::String("inactive".to_string()));
+
+            // Add PENDING value with no metadata
+            enm.value("PENDING");
+        }
+
+        // Convert to string and verify the format
+        let output = builder.to_string();
+        assert_eq!(
+            output,
+            "TypeBuilder(Classes: [User { name set (alias='username', desc='The user\'s full name'), age set (desc='User\'s age in years'), email set }], Enums: [Status { ACTIVE (alias='active', desc='User is active'), INACTIVE (alias='inactive'), PENDING }])"
+        );
+    }
+
+
+// my paranoia kicked in, so tis  test is to ensure that the string representation is correct
+// and that the to_overrides method is working as expected
+
+    #[test]
+    fn test_type_builder_advanced() {
+        let builder = TypeBuilder::new();
+
+        // 1. Complex class with nested types and all field types
+        let address = builder.class("Address");
+        {
+            let address = address.lock().unwrap();
+            // String with all metadata
+            address.property("street")
+                .lock()
+                .unwrap()
+                .r#type(FieldType::string())
+                .with_meta("alias", BamlValue::String("streetAddress".to_string()))
+                .with_meta("description", BamlValue::String("Street address including number".to_string()));
+
+            // Optional int with description
+            address.property("unit")
+                .lock()
+                .unwrap()
+                .r#type(FieldType::int().as_optional())
+                .with_meta("description", BamlValue::String("Apartment/unit number if applicable".to_string()));
+
+            // List of strings with alias
+            address.property("tags")
+                .lock()
+                .unwrap()
+                .r#type(FieldType::string().as_list())
+                .with_meta("alias", BamlValue::String("labels".to_string()));
+
+            // Boolean with no metadata
+            address.property("is_primary")
+                .lock()
+                .unwrap()
+                .r#type(FieldType::bool());
+
+            // Float with skip metadata
+            address.property("coordinates")
+                .lock()
+                .unwrap()
+                .r#type(FieldType::float())
+                .with_meta("skip", BamlValue::Bool(true));
+        }
+
+        // 2. Empty class
+        builder.class("EmptyClass");
+
+        // 3. Complex enum with various metadata combinations
+        let priority = builder.r#enum("Priority");
+        {
+            let priority = priority.lock().unwrap();
+            // All metadata
+            priority.value("HIGH")
+                .lock()
+                .unwrap()
+                .with_meta("alias", BamlValue::String("urgent".to_string()))
+                .with_meta("description", BamlValue::String("Needs immediate attention".to_string()))
+                .with_meta("skip", BamlValue::Bool(false));
+
+            // Only description
+            priority.value("MEDIUM")
+                .lock()
+                .unwrap()
+                .with_meta("description", BamlValue::String("Standard priority".to_string()));
+
+            // Only skip
+            priority.value("LOW")
+                .lock()
+                .unwrap()
+                .with_meta("skip", BamlValue::Bool(true));
+
+            // No metadata
+            priority.value("NONE");
+        }
+
+        // 4. Empty enum
+        builder.r#enum("EmptyEnum");
+
+        // Test string representation
+        let output = builder.to_string();
+        assert_eq!(
+            output,
+            "TypeBuilder(Classes: [Address { street set (alias='streetAddress', desc='Street address including number'), unit set (desc='Apartment/unit number if applicable'), tags set (alias='labels'), is_primary set, coordinates set }, EmptyClass {}], Enums: [Priority { HIGH (alias='urgent', desc='Needs immediate attention'), MEDIUM (desc='Standard priority'), LOW, NONE }, EmptyEnum {}])"
+        );
+
+        // Test to_overrides()
+        let (classes, enums) = builder.to_overrides();
+
+        // Verify class overrides
+        assert_eq!(classes.len(), 2);
+        let address_override = classes.get("Address").unwrap();
+        assert_eq!(address_override.new_fields.len(), 5); // All fields are new
+        assert!(address_override.new_fields.get("street").unwrap().1.alias.is_some());
+        assert!(address_override.new_fields.get("coordinates").unwrap().1.skip.unwrap());
+
+        // Verify enum overrides
+        assert_eq!(enums.len(), 2);
+        let priority_override = enums.get("Priority").unwrap();
+        assert_eq!(priority_override.values.len(), 4);
+        assert!(priority_override.values.get("HIGH").unwrap().alias.is_some());
+        assert!(priority_override.values.get("LOW").unwrap().skip.unwrap());
     }
 }
