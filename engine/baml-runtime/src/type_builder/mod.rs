@@ -134,185 +134,218 @@ impl EnumBuilder {
     }
 }
 
+// displays a class property along with its current state and metadata
+// the format shows three key pieces of information:
+// 1. the property name as defined in the class
+// 2. the type status: either 'set' (type defined) or 'unset' (type pending)
+// 3. any metadata attached to the property in parentheses
+//
+// metadata is shown in key=value format, with values formatted according to their type
+// multiple metadata entries are separated by commas for readability
+//
+// examples of the output format:
+//   name set (alias='username', description='full name')
+//   - shows a property with both alias and description metadata
+//   age unset
+//   - shows a property without a defined type or metadata
+//   email set (required=true, format='email')
+//   - shows a property with multiple metadata values of different types
 impl fmt::Display for ClassPropertyBuilder {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let meta = self.meta.lock().unwrap();
-        let alias = meta.get("alias").and_then(|v| v.as_string());
-        let desc = meta.get("description").and_then(|v| v.as_string());
-
         write!(f, "{}", self.r#type.lock().unwrap().as_ref().map_or("unset", |_| "set"))?;
-        if let Some(alias) = alias {
-            write!(f, " (alias='{}'", alias)?;
-            if let Some(desc) = desc {
-                write!(f, ", desc='{}'", desc)?;
+
+        if !meta.is_empty() {
+            write!(f, " (")?;
+            for (i, (key, value)) in meta.iter().enumerate() {
+                if i > 0 {
+                    write!(f, ", ")?;
+                }
+                write!(f, "{}={}", key, value)?;
             }
             write!(f, ")")?;
-        } else if let Some(desc) = desc {
-            write!(f, " (desc='{}')", desc)?;
         }
         Ok(())
     }
 }
 
+// displays an enum value and its associated metadata
+// the format focuses on clarity and completeness:
+// 1. the enum value name in uppercase (following enum conventions)
+// 2. any metadata in parentheses, showing all attached information
+//
+// metadata is displayed in a consistent key=value format:
+// - each piece of metadata is separated by commas
+// - values are formatted based on their type (quotes for strings, etc.)
+// - all metadata is shown, not just common fields like alias
+//
+// examples of the output format:
+//   ACTIVE (alias='active', priority=1, enabled=true)
+//   - shows an enum value with multiple metadata types
+//   PENDING
+//   - shows a simple enum value with no metadata
+//   INACTIVE (description='not currently in use', status=null)
+//   - shows how null values and longer descriptions are formatted
+impl fmt::Display for EnumValueBuilder {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let meta = self.meta.lock().unwrap();
+
+        if !meta.is_empty() {
+            write!(f, " (")?;
+            for (i, (key, value)) in meta.iter().enumerate() {
+                if i > 0 {
+                    write!(f, ", ")?;
+                }
+                write!(f, "{}={}", key, value)?;
+            }
+            write!(f, ")")?;
+        }
+        Ok(())
+    }
+}
+
+// displays a complete class definition with all its properties
+// the format provides a clear hierarchical structure:
+// 1. class name followed by an opening brace
+// 2. indented list of properties, each on its own line
+// 3. closing brace aligned with the class name
+//
+// properties are displayed with consistent indentation and formatting:
+// - each property starts on a new line with proper indentation
+// - properties are separated by commas for valid syntax
+// - the last property doesn't have a trailing comma
+//
+// example of the complete format:
+//   User {
+//     name set (alias='username', description='user's full name'),
+//     age set (type='integer', min=0),
+//     email set (format='email', required=true),
+//     status unset
+//   }
 impl fmt::Display for ClassBuilder {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let properties = self.properties.lock().unwrap();
         write!(f, "{{")?;
         if !properties.is_empty() {
-            write!(f, " ")?;
             for (i, (name, prop)) in properties.iter().enumerate() {
                 if i > 0 {
-                    write!(f, ", ")?;
+                    write!(f, ",")?;
                 }
-                write!(f, "{} {}", name, prop.lock().unwrap())?;
+                write!(f, "\n      {} {}", name, prop.lock().unwrap())?;
             }
-            write!(f, " ")?;
+            write!(f, "\n    ")?;
         }
         write!(f, "}}")
     }
 }
 
-/// formats enum value builders into a  string representation
-///
-/// each enum value's metadata is formatted in a consistent way:
-/// - all metadata fields are included in the output
-/// - metadata appears in parentheses after the enum value name
-/// - fields are comma-separated and follow key=value format
-/// - string values are single-quoted
-/// - numbers, booleans and null values are unquoted
-///
-/// example outputs:
-///
-/// an enum value with no metadata:
-/// ```text
-/// PENDING
-/// ```
-///
-/// an enum value with various metadata types:
-/// ```text
-/// ACTIVE (alias='active', skip=false, priority=1, weight=0.5)
-/// ```
-///
-/// an enum value with null metadata:
-/// ```text
-/// INACTIVE (description=null, enabled=false)
-/// ```
-impl fmt::Display for EnumValueBuilder {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let meta = self.meta.lock().unwrap();
-
-        // only include metadata section if we have metadata to display
-        if !meta.is_empty() {
-            write!(f, " (")?;
-
-            // format each metadata entry with appropriate type handling
-            for (i, (key, value)) in meta.iter().enumerate() {
-                // add comma separator between metadata entries
-                if i > 0 {
-                    write!(f, ", ")?;
-                }
-
-                // format each value type appropriately for clean display
-                match value {
-                    BamlValue::String(s) => write!(f, "{}='{}'", key, s)?,     // quoted strings
-                    BamlValue::Bool(b) => write!(f, "{}={}", key, b)?,         // true/false
-                    BamlValue::Int(n) => write!(f, "{}={}", key, n)?,          // plain numbers
-                    BamlValue::Float(x) => write!(f, "{}={}", key, x)?,        // decimal numbers
-                    BamlValue::Null => write!(f, "{}=null", key)?,             // explicit null
-                    _ => write!(f, "{}={:?}", key, value)?,                    // debug format fallback
-                }
-            }
-
-            write!(f, ")")?;
-        }
-        Ok(())
-    }
-}
-
+// displays a complete enum definition with all its values
+// the format creates a clear and readable structure:
+// 1. enum name followed by an opening brace
+// 2. indented list of enum values, each on its own line
+// 3. closing brace aligned with the enum name
+//
+// values are displayed with consistent formatting:
+// - each value starts on a new line with proper indentation
+// - values are separated by commas for valid syntax
+// - metadata is shown in parentheses when present
+// - empty enums are shown with empty braces
+//
+// example of the complete format:
+//   Status {
+//     ACTIVE (alias='active', weight=1.0),
+//     PENDING (description='awaiting processing'),
+//     INACTIVE (enabled=false),
+//     ARCHIVED
+//   }
 impl fmt::Display for EnumBuilder {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let values = self.values.lock().unwrap();
         write!(f, "{{")?;
         if !values.is_empty() {
-            write!(f, " ")?;
             for (i, (name, value)) in values.iter().enumerate() {
                 if i > 0 {
-                    write!(f, ", ")?;
+                    write!(f, ",")?;
                 }
-                write!(f, "{}{}", name, value.lock().unwrap())?;
+                write!(f, "\n      {}{}", name, value.lock().unwrap())?;
             }
-            write!(f, " ")?;
+            write!(f, "\n    ")?;
         }
         write!(f, "}}")
     }
 }
 
-/// implements a string representation for typebuilder.
-///
-/// this implementation provides a clear, hierarchical view of the typebuilder's structure,
-/// making it easy to understand the defined types and their metadata at a glance.
-///
-/// # Format
-/// ```text
-/// TypeBuilder(
-///   Classes: [
-///     ClassName {
-///       property_name type (alias='custom_name', desc='property description'),
-///       another_property type (desc='another description'),
-///       simple_property type
-///     },
-///     EmptyClass { }
-///   ],
-///   Enums: [
-///     EnumName {
-///       VALUE (alias='custom_value', desc='value description'),
-///       ANOTHER_VALUE (alias='custom'),
-///       SIMPLE_VALUE
-///     },
-///     EmptyEnum { }
-///   ]
-/// )
-/// ```
-///
-/// # properties shown
-/// - class and property names
-/// - property types (set/unset)
-/// - property metadata (aliases, descriptions)
-/// - enum values and their metadata
-/// - empty classes and enums
+// displays the complete type builder state in a clear, hierarchical format
+// this is the top-level representation that shows all defined types
+//
+//
+// 1. starts with "TypeBuilder(" to identify the structure
+// 2. contains two main sections: Classes and Enums
+// 3. each section is properly indented and bracketed
+// 4. empty sections are omitted for conciseness
+//
+// the structure maintains consistent formatting:
+// - each class and enum starts on a new line
+// - proper indentation shows the hierarchy
+// - commas separate multiple items
+// - empty classes/enums are shown with empty braces
+//
+// example of the complete format:
+// TypeBuilder(
+//   Classes: [
+//     User {
+//       name set (alias='username'),
+//       email set (required=true)
+//     },
+//     Address { }
+//   ],
+//   Enums: [
+//     Status {
+//       ACTIVE (alias='active'),
+//       PENDING,
+//       INACTIVE (enabled=false)
+//     }
+//   ]
+// )
+//
+// this format makes it easy to:
+// - understand the overall structure of defined types
+// - see relationships between classes and their properties
+// - identify enum values and their metadata
+// - spot any missing or incomplete definitions
 impl fmt::Display for TypeBuilder {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let classes = self.classes.lock().unwrap();
         let enums = self.enums.lock().unwrap();
 
-        write!(f, "TypeBuilder(")?;
+        writeln!(f, "TypeBuilder(")?;
 
         if !classes.is_empty() {
-            write!(f, "Classes: [")?;
+            write!(f, "  Classes: [")?;
             for (i, (name, cls)) in classes.iter().enumerate() {
                 if i > 0 {
-                    write!(f, ", ")?;
+                    write!(f, ",")?;
                 }
-                write!(f, "{} {}", name, cls.lock().unwrap())?;
+                write!(f, "\n    {} {}", name, cls.lock().unwrap())?;
             }
-            write!(f, "]")?;
+            write!(f, "\n  ]")?;
         }
 
         if !enums.is_empty() {
             if !classes.is_empty() {
-                write!(f, ", ")?;
+                write!(f, ",")?;
             }
-            write!(f, "Enums: [")?;
+            write!(f, "\n  Enums: [")?;
             for (i, (name, e)) in enums.iter().enumerate() {
                 if i > 0 {
-                    write!(f, ", ")?;
+                    write!(f, ",")?;
                 }
-                write!(f, "{} {}", name, e.lock().unwrap())?;
+                write!(f, "\n    {} {}", name, e.lock().unwrap())?;
             }
-            write!(f, "]")?;
+            write!(f, "\n  ]")?;
         }
 
-        write!(f, ")")
+        write!(f, "\n)")
     }
 }
 
@@ -501,12 +534,11 @@ mod tests {
         let output = builder.to_string();
         assert_eq!(
             output,
-            "TypeBuilder(Classes: [User { name set (alias='username', desc='The user\'s full name'), age set (desc='User\'s age in years'), email set }], Enums: [Status { ACTIVE (alias='active', desc='User is active'), INACTIVE (alias='inactive'), PENDING }])"
+            "TypeBuilder(\n  Classes: [\n    User {\n      name set (alias='username', description='The user's full name'),\n      age set (description='User's age in years'),\n      email set\n    }\n  ],\n  Enums: [\n    Status {\n      ACTIVE (alias='active', description='User is active'),\n      INACTIVE (alias='inactive'),\n      PENDING\n    }\n  ]\n)"
         );
     }
 
-
-// my paranoia kicked in, so tis  test is to ensure that the string representation is correct
+// my paranoia kicked in, so this  test is to ensure that the string representation is correct
 // and that the to_overrides method is working as expected
 
     #[test]
@@ -591,7 +623,7 @@ mod tests {
         let output = builder.to_string();
         assert_eq!(
             output,
-            "TypeBuilder(Classes: [Address { street set (alias='streetAddress', desc='Street address including number'), unit set (desc='Apartment/unit number if applicable'), tags set (alias='labels'), is_primary set, coordinates set }, EmptyClass {}], Enums: [Priority { HIGH (alias='urgent', desc='Needs immediate attention'), MEDIUM (desc='Standard priority'), LOW, NONE }, EmptyEnum {}])"
+            "TypeBuilder(\n  Classes: [\n    Address {\n      street set (alias='streetAddress', description='Street address including number'),\n      unit set (description='Apartment/unit number if applicable'),\n      tags set (alias='labels'),\n      is_primary set,\n      coordinates set (skip=true)\n    },\n    EmptyClass {}\n  ],\n  Enums: [\n    Priority {\n      HIGH (alias='urgent', description='Needs immediate attention', skip=false),\n      MEDIUM (description='Standard priority'),\n      LOW (skip=true),\n      NONE\n    },\n    EmptyEnum {}\n  ]\n)"
         );
 
         // Test to_overrides()
