@@ -172,20 +172,58 @@ impl fmt::Display for ClassBuilder {
     }
 }
 
+/// formats enum value builders into a  string representation
+///
+/// each enum value's metadata is formatted in a consistent way:
+/// - all metadata fields are included in the output
+/// - metadata appears in parentheses after the enum value name
+/// - fields are comma-separated and follow key=value format
+/// - string values are single-quoted
+/// - numbers, booleans and null values are unquoted
+///
+/// example outputs:
+///
+/// an enum value with no metadata:
+/// ```text
+/// PENDING
+/// ```
+///
+/// an enum value with various metadata types:
+/// ```text
+/// ACTIVE (alias='active', skip=false, priority=1, weight=0.5)
+/// ```
+///
+/// an enum value with null metadata:
+/// ```text
+/// INACTIVE (description=null, enabled=false)
+/// ```
 impl fmt::Display for EnumValueBuilder {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let meta = self.meta.lock().unwrap();
-        let alias = meta.get("alias").and_then(|v| v.as_string());
-        let desc = meta.get("description").and_then(|v| v.as_string());
 
-        if let Some(alias) = alias {
-            write!(f, " (alias='{}'", alias)?;
-            if let Some(desc) = desc {
-                write!(f, ", desc='{}'", desc)?;
+        // only include metadata section if we have metadata to display
+        if !meta.is_empty() {
+            write!(f, " (")?;
+
+            // format each metadata entry with appropriate type handling
+            for (i, (key, value)) in meta.iter().enumerate() {
+                // add comma separator between metadata entries
+                if i > 0 {
+                    write!(f, ", ")?;
+                }
+
+                // format each value type appropriately for clean display
+                match value {
+                    BamlValue::String(s) => write!(f, "{}='{}'", key, s)?,     // quoted strings
+                    BamlValue::Bool(b) => write!(f, "{}={}", key, b)?,         // true/false
+                    BamlValue::Int(n) => write!(f, "{}={}", key, n)?,          // plain numbers
+                    BamlValue::Float(x) => write!(f, "{}={}", key, x)?,        // decimal numbers
+                    BamlValue::Null => write!(f, "{}=null", key)?,             // explicit null
+                    _ => write!(f, "{}={:?}", key, value)?,                    // debug format fallback
+                }
             }
+
             write!(f, ")")?;
-        } else if let Some(desc) = desc {
-            write!(f, " (desc='{}')", desc)?;
         }
         Ok(())
     }
